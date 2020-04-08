@@ -1,0 +1,17 @@
+{
+  "name": "usercss-compiler",
+  "version": "1.0.0",
+  "description": "Enhanced css-compiler to compile usercss.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "keywords": [
+    "usercss",
+    "darken-pages",
+    "naverdark"
+  ],
+  "author": "OrigamiDream",
+  "license": "MIT"
+}
