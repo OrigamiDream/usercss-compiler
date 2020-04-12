@@ -333,7 +333,16 @@ CSSCompiler.prototype = {
                 case CSSSTYLE_TYPE_RULE:
                     rule.rules.sort();
 
-                    const key = rule.rules.join(';');
+                    let composed = [];
+                    for(let j = 0; j < rule.rules.length; j++) {
+                        let style = rule.rules[j];
+                        if(style.indexOf('background-size') !== -1 && !style.endsWith('!important')) {
+                            style += ' !important';
+                        }
+                        composed.push(style);
+                    }
+
+                    const key = composed.join(';');
                     if(typeof ruleList[key] === 'undefined') {
                         ruleList[key] = {
                             reduced: 0,
