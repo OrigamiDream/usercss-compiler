@@ -633,6 +633,10 @@ CSSCompiler.prototype = {
             }
         });
     },
+
+    logError: function(message) {
+        console.error(`${FgRed}%s${Reset}`, message);
+    }
 };
 
 const Reset = "\x1b[0m";

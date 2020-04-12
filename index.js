@@ -1,44 +1,62 @@
 let fs = require('fs');
 let { CSSCompiler, CSSStyle, CSSStyleIntegrityError } = require('./compiler');
 
-console.log('Preparing files...');
+validate();
 
-const uncompressedStylePath = 'uncompressed.css';
-const compressedStylePath = 'compressed.css';
-let contents = fs.readFileSync(uncompressedStylePath, 'utf8');
-
-function fetchUserStyleProperties(contents) {
-    const start = "/* ==UserStyle==";
-    const end = "==/UserStyle== */";
-
-    let begin = contents.indexOf(start);
-    let finish = contents.indexOf(end);
-
-    if(begin === -1 || finish === -1) {
-        return '';
+function validate() {
+    const args = process.argv.slice(2);
+    if(args.length !== 2) {
+        CSSCompiler.prototype.logError('Invalid argument: [uncompressed style path] [compressed result style path]');
+        return;
     }
-
-    let properties = '';
-    for(let i = begin; i < finish + end.length; i++) {
-        properties += contents[i];
+    try {
+        if(fs.existsSync(args[0])) {
+            perform(args[0], args[1]);
+        } else {
+            CSSCompiler.prototype.logError(`No file exists at: ${args[0]}`);
+        }
+    } catch(err) {
+        CSSCompiler.prototype.logError(err);
     }
-    return properties;
 }
 
-let properties = fetchUserStyleProperties(contents);
+function perform(uncompressedStylePath, compressedStylePath) {
+    console.log('Preparing files...');
 
-console.log('Preparing compiler...');
+    let contents = fs.readFileSync(uncompressedStylePath, 'utf8');
 
-const compiler = new CSSCompiler();
-compiler.init();
+    function fetchUserStyleProperties(contents) {
+        const start = "/* ==UserStyle==";
+        const end = "==/UserStyle== */";
 
-console.log('Reading...');
+        let begin = contents.indexOf(start);
+        let finish = contents.indexOf(end);
 
-const uncompressed = compiler.interpret(contents);
-const compressed = new CSSStyle();
+        if(begin === -1 || finish === -1) {
+            return '';
+        }
 
-console.log('Merging...');
-compiler.mergeStyles(compressed, uncompressed.styles);
+        let properties = '';
+        for(let i = begin; i < finish + end.length; i++) {
+            properties += contents[i];
+        }
+        return properties;
+    }
+
+    let properties = fetchUserStyleProperties(contents);
+
+    console.log('Preparing compiler...');
+
+    const compiler = new CSSCompiler();
+    compiler.init();
+
+    console.log('Reading...');
+
+    const uncompressed = compiler.interpret(contents);
+    const compressed = new CSSStyle();
+
+    console.log('Merging...');
+    compiler.mergeStyles(compressed, uncompressed.styles);
 
 // DEBUG START
 // compressed.styles[20].type = 2; // Changing CSS style type into media-query
@@ -49,32 +67,33 @@ compiler.mergeStyles(compressed, uncompressed.styles);
 // DEBUG END
 
 // Verify uncompressed and compressed styles integrity.
-const errors = compiler.verifyStyleIntegrity(uncompressed, compressed);
-if(errors.length > 0) {
-    console.log('Original styles and compressed styles\' components are not identical.');
-    console.log('Caused by:');
-    for(let error of errors) {
-        console.log(error.toString());
+    const errors = compiler.verifyStyleIntegrity(uncompressed, compressed);
+    if(errors.length > 0) {
+        console.log('Original styles and compressed styles\' components are not identical.');
+        console.log('Caused by:');
+        for(let error of errors) {
+            console.log(error.toString());
+        }
+    } else {
+        console.log('Original styles and compressed styles\' components are identical.');
+
+        const uncompressedResult = compiler.toString(uncompressed, {
+            textIndent: true
+        });
+        const compressedResult = compiler.toString(compressed, {
+            textIndent: true
+        });
+
+        console.log(`Uncompressed size: ${uncompressedResult.length}`);
+        console.log(`Compressed size: ${compressedResult.length}`);
+        console.log(`Total compressed: -${(100 - (compressedResult.length * 100 / uncompressedResult.length)).toFixed(1)}%`);
+
+        console.log('Writing them in file...');
+
+        if(fs.existsSync(compressedStylePath)) {
+            fs.unlinkSync(compressedStylePath);
+        }
+
+        fs.appendFileSync(compressedStylePath, properties + '\n' + compressedResult, 'utf8');
     }
-} else {
-    console.log('Original styles and compressed styles\' components are identical.');
-
-    const uncompressedResult = compiler.toString(uncompressed, {
-        textIndent: true
-    });
-    const compressedResult = compiler.toString(compressed, {
-        textIndent: true
-    });
-
-    console.log(`Uncompressed size: ${uncompressedResult.length}`);
-    console.log(`Compressed size: ${compressedResult.length}`);
-    console.log(`Total compressed: -${(100 - (compressedResult.length * 100 / uncompressedResult.length)).toFixed(1)}%`);
-
-    console.log('Writing them in file...');
-
-    if(fs.existsSync(compressedStylePath)) {
-        fs.unlinkSync(compressedStylePath);
-    }
-
-    fs.appendFileSync(compressedStylePath, properties + '\n' + compressedResult, 'utf8');
 }
