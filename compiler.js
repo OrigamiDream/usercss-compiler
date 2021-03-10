@@ -2,22 +2,333 @@ const CSSSTYLE_TYPE_RULE = 1;
 const CSSSTYLE_TYPE_MEDIA = 2;
 const CSSSTYLE_TYPE_IMPORT = 3;
 const CSSSTYLE_TYPE_MOZILLA_DOCUMENT = 4;
+const CSSSTYLE_TYPE_SUPPORTS = 5;
+const CSSSTYLE_TYPE_KEYFRAMES = 6;
+
+const cssStyleTypes = {
+    stacks: [],
+    styleTypes: {
+        styleRule: {
+            name: 'CSSStyleRule',
+            id: CSSSTYLE_TYPE_RULE,
+            constructor: function () {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_RULE;
+                this.selectorTexts = [];
+                this.rules = [];
+
+                this.decompressedSelectorIndices = [];
+
+                this.toString = function () {
+                    return `${this.selectorTexts} { [${this.rules.length} css rules inside] }`;
+                };
+
+                this.getRule = function() {
+                    return this.selectorTexts.join(',');
+                };
+
+                this.setRule = function(newRule) {
+                    if(typeof newRule === 'string') {
+                        this.selectorTexts = splitter(newRule, ',');
+                    } else {
+                        this.selectorTexts = newRule;
+                    }
+                };
+
+                this.compare = function(compressed) {
+                    // Cannot verify css-rules if they are identical.
+                    // Merging process zips duplicated tags into one selector.
+                };
+            },
+            parse: function (vars, buf) {
+                if (!buf.startsWith('@')) {
+                    const style = new CSSStyleRule();
+                    style.line = vars.lineNumber;
+                    const selectorTexts = splitter(trimBuffer(vars.buffer), ',');
+                    for (let selectorText of selectorTexts) {
+                        style.selectorTexts.push(trimBuffer(selectorText));
+                    }
+                    vars.bracketAllowed = false;
+                    cssStyleTypes.stacks.push({
+                        style: style,
+                        type: cssStyleTypes.styleTypes.styleRule
+                    });
+                    return true;
+                }
+                return false;
+            },
+            enclose: function(vars, style) {
+                let rules = splitter(trimBuffer(vars.buffer), ';');
+                for(let rule of rules) {
+                    if(rule.length === 0) {
+                        continue;
+                    }
+                    style.rules.push(trimBuffer(rule));
+                }
+                vars.bracketAllowed = true;
+            }
+        },
+        mediaQuery: {
+            name: 'CSSStyleMediaQuery',
+            id: CSSSTYLE_TYPE_MEDIA,
+            constructor: function() {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_MEDIA;
+                this.mediaRuleText = '';
+                this.styles = [];
+                this.childrenReduced = 0;
+
+                this.decompressedSelectorIndices = [];
+
+                this.toString = function() {
+                    return `${this.mediaRuleText} { [${this.styles.length} selectors inside] }`;
+                };
+
+                this.getRule = function() {
+                    return this.mediaRuleText;
+                };
+
+                this.setRule = function(newRule) {
+                    this.mediaRuleText = newRule;
+                };
+
+                this.compare = function(errors, compressed) {
+                    let a = this.mediaRuleText;
+                    let b = compressed.mediaRuleText;
+                    if(trimBuffer(a) !== trimBuffer(b)) {
+                        errors.push(new CSSStyleIntegrityError().setLine(this.line).setStyle(this).setErrorMessage(`Media query rules are not identical. (original: ${a}, compressed: ${b})`));
+                        return false;
+                    }
+                    return true;
+                };
+            },
+            parse: function(vars, buf) {
+                if(buf.startsWith('@media')) {
+                    const style = new CSSStyleMediaQuery();
+                    style.line = vars.lineNumber;
+                    style.mediaRuleText = buf;
+                    cssStyleTypes.stacks.push({
+                        style: style,
+                        type: cssStyleTypes.styleTypes.mediaQuery
+                    });
+                    return true;
+                }
+                return false;
+            },
+            enclose: function(vars, style) {
+            }
+        },
+        mozillaDocument: {
+            name: 'CSSStyleMozillaDocument',
+            id: CSSSTYLE_TYPE_MOZILLA_DOCUMENT,
+            constructor: function() {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_MOZILLA_DOCUMENT;
+                this.documentText = '';
+                this.styles = [];
+                this.childrenReduced = 0;
+
+                this.decompressedSelectorIndices = [];
+
+                this.toString = function() {
+                    return `${this.documentText} { [${this.styles.length} selectors or queries inside] }`;
+                };
+
+                this.getRule = function() {
+                    return this.documentText;
+                };
+
+                this.setRule = function(newRule) {
+                    this.documentText = newRule;
+                };
+
+                this.compare = function(errors, compressed) {
+                    let a = this.documentText;
+                    let b = compressed.documentText;
+                    if(trimBuffer(a) !== trimBuffer(b)) {
+                        errors.push(new CSSStyleIntegrityError().setLine(this.line).setStyle(this).setErrorMessage(`Mozilla documents URL selectors are not identical. (original: ${a}, compressed: ${b})`));
+                        return false;
+                    }
+                    return true;
+                };
+            },
+            parse: function(vars, buf) {
+                if(buf.startsWith('@-moz-document')) {
+                    const style = new CSSStyleMozillaDocument();
+                    style.line = vars.lineNumber;
+                    style.documentText = buf;
+                    cssStyleTypes.stacks.push({
+                        style: style,
+                        type: cssStyleTypes.styleTypes.mozillaDocument
+                    });
+                    return true;
+                }
+                return false;
+            },
+            enclose: function(vars, style) {
+            }
+        },
+        supports: {
+            name: 'CSSStyleSupports',
+            id: CSSSTYLE_TYPE_SUPPORTS,
+            constructor: function() {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_SUPPORTS;
+                this.supportsText = '';
+                this.styles = [];
+                this.childrenReduced = 0;
+
+                this.decompressedSelectorIndices = [];
+
+                this.toString = function() {
+                    return `${this.supportsText} { [${this.styles.length} selectors or queries inside] }`;
+                };
+
+                this.getRule = function() {
+                    return this.supportsText;
+                };
+
+                this.setRule = function(newRule) {
+                    this.supportsText = newRule;
+                };
+
+                this.compare = function(errors, compressed) {
+                    let a = this.supportsText;
+                    let b = compressed.supportsText;
+                    if(trimBuffer(a) !== trimBuffer(b)) {
+                        errors.push(new CSSStyleIntegrityError().setLine(this.line).setStyle(this).setErrorMessage(`Supports rules are not identical. (original: ${a}, compressed: ${b})`));
+                        return false;
+                    }
+                    return true;
+                };
+            },
+            parse: function(vars, buf) {
+                if(buf.startsWith('@supports')) {
+                    const style = new CSSStyleSupports();
+                    style.line = vars.lineNumber;
+                    style.supportsText = buf;
+                    cssStyleTypes.stacks.push({
+                        style: style,
+                        type: cssStyleTypes.styleTypes.supports
+                    });
+                    return true;
+                }
+                return false;
+            },
+            enclose: function(vars, style) {
+            }
+        },
+        keyframes: {
+            name: 'CSSStyleKeyframes',
+            id: CSSSTYLE_TYPE_KEYFRAMES,
+            constructor: function() {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_KEYFRAMES;
+                this.keyframesText = '';
+                this.styles = [];
+                this.childrenReduced = 0;
+
+                this.decompressedSelectorIndices = [];
+
+                this.toString = function() {
+                    return `${this.keyframesText} { [${this.styles.length} selectors or queries inside] }`;
+                };
+
+                this.getRule = function() {
+                    return this.keyframesText;
+                };
+
+                this.setRule = function(newRule) {
+                    this.keyframesText = newRule;
+                };
+
+                this.compare = function(errors, compressed) {
+                    let a = this.keyframesText;
+                    let b = compressed.keyframesText;
+                    if(trimBuffer(a) !== trimBuffer(b)) {
+                        errors.push(new CSSStyleIntegrityError().setLine(this.line).setStyle(this).setErrorMessage(`Keyframe animation rules are not identical. (original: ${a}, compressed: ${b})`));
+                        return false;
+                    }
+                    return true;
+                };
+            },
+            parse: function(vars, buf) {
+                if(buf.startsWith('@keyframes') || buf.startsWith('@-webkit-keyframes') || buf.startsWith('@-moz-keyframes') || buf.startsWith('@-o-keyframes')) {
+                    const style = new CSSStyleKeyframes();
+                    style.line = vars.lineNumber;
+                    style.keyframesText = buf;
+                    cssStyleTypes.stacks.push({
+                        style: style,
+                        type: cssStyleTypes.styleTypes.keyframes
+                    });
+                    return true;
+                }
+                return false;
+            },
+            enclose: function(vars, style) {
+            }
+        },
+        imports: {
+            name: 'CSSStyleImport',
+            id: CSSSTYLE_TYPE_IMPORT,
+            constructor: function() {
+                this.line = 0;
+                this.type = CSSSTYLE_TYPE_IMPORT;
+                this.importText = '';
+
+                this.decompressedSelectorIndices = []; // Array of Int
+
+                this.toString = function() {
+                    return `${this.importText}`;
+                };
+
+                this.getRule = function() {
+                    return this.importText;
+                };
+
+                this.setRule = function(newRule) {
+                    this.importText = newRule;
+                };
+
+                this.compare = function(errors, compressed) {
+                    let a = this.importText;
+                    let b = compressed.importText;
+                    if(trimBuffer(a) !== trimBuffer(b)) {
+                        errors.push(new CSSStyleIntegrityError().setLine(this.line).setStyle(this).setErrorMessage(`Import rules are not identical. (original: ${a}, compressed: ${b})`));
+                    }
+                    // Import rules does not have inner styles
+                    return false;
+                };
+            },
+            parse: function(vars, buf) {
+                return false;
+            },
+            enclose: function(vars, style) {
+            }
+        }
+    }
+};
+
+const CSSStyleRule = cssStyleTypes.styleTypes.styleRule.constructor;
+const CSSStyleMediaQuery = cssStyleTypes.styleTypes.mediaQuery.constructor;
+const CSSStyleMozillaDocument = cssStyleTypes.styleTypes.mozillaDocument.constructor;
+const CSSStyleSupports = cssStyleTypes.styleTypes.supports.constructor;
+const CSSStyleKeyframes = cssStyleTypes.styleTypes.keyframes.constructor;
+const CSSStyleImport = cssStyleTypes.styleTypes.imports.constructor;
 
 function getFriendlyCSSStyleType(styleType) {
-    switch (styleType) {
-        case CSSSTYLE_TYPE_RULE:
-            return 'CSSStyleRule';
+    const structure = getStyleStructure(styleType);
+    return structure != null ? structure.name : 'Unknown CSSStyle';
+}
 
-        case CSSSTYLE_TYPE_MEDIA:
-            return 'CSSStyleMediaQuery';
-
-        case CSSSTYLE_TYPE_IMPORT:
-            return 'CSSStyleImport';
-
-        case CSSSTYLE_TYPE_MOZILLA_DOCUMENT:
-            return 'CSSStyleMozillaDocument';
+function getStyleStructure(styleType) {
+    for(let styleKey in cssStyleTypes.styleTypes) {
+        let type = cssStyleTypes.styleTypes[styleKey];
+        if(type.id === styleType) {
+            return type;
+        }
     }
-    return 'Unknown CSSStyle';
+    return null;
 }
 
 function CSSCompiler() {
@@ -34,69 +345,6 @@ function CSSStyle() {
     this.getName = function() {
         return `Top-level stylesheet`;
     }
-}
-
-function CSSStyleRule() {
-    this.line = 0;
-    this.type = CSSSTYLE_TYPE_RULE;
-    this.selectorTexts = []; // Array of String
-    this.rules = []; // Array of String
-
-    this.decompressedSelectorIndices = []; // Array of Int
-
-    this.toString = function() {
-        return `${this.selectorTexts} { [${this.rules.length} css rules inside] }`;
-    };
-
-    this.getName = function() {
-        return `${this.selectorTexts.join(', ')}`
-    };
-}
-
-function CSSStyleImport() {
-    this.line = 0;
-    this.type = CSSSTYLE_TYPE_IMPORT;
-    this.importText = '';
-
-    this.toString = function() {
-        return `${this.importText}`;
-    };
-
-    this.getName = function() {
-        return `${this.importText}`;
-    };
-}
-
-function CSSStyleMediaQuery() {
-    this.line = 0;
-    this.type = CSSSTYLE_TYPE_MEDIA;
-    this.mediaRuleText = '';
-    this.styles = []; // Array of CSSStyleRule
-    this.childrenReduced = 0;
-
-    this.toString = function() {
-        return `${this.mediaRuleText} { [${this.styles.length} selectors inside] }`;
-    };
-
-    this.getName = function() {
-        return `${this.mediaRuleText}`;
-    };
-}
-
-function CSSStyleMozillaDocument() {
-    this.line = 0;
-    this.type = CSSSTYLE_TYPE_MOZILLA_DOCUMENT;
-    this.documentText = '';
-    this.styles = []; // Array of CSSStyleRule
-    this.childrenReduced = 0;
-
-    this.toString = function() {
-        return `${this.documentText} { [${this.styles.length} selectors or queries inside] }`;
-    };
-
-    this.getName = function() {
-        return `${this.documentText}`;
-    };
 }
 
 function CSSStyleIntegrityError() {
@@ -136,6 +384,46 @@ CSSStyleIntegrityError.prototype = {
     }
 }
 
+function splitter(text, delimiter) {
+    let array = [];
+    let stringOperator = null;
+    let walkthroughString = false;
+
+    let buf = '';
+    let search = '';
+    for(let i = 0; i < text.length; i++) {
+        const c = text.charAt(i);
+        if(c === '\'' || c === '"') {
+            if(walkthroughString) {
+                if(stringOperator === c) {
+                    stringOperator = null;
+                    walkthroughString = false;
+                }
+            } else {
+                stringOperator = c;
+                walkthroughString = true;
+            }
+        }
+
+        let skip = false;
+        if(!walkthroughString) {
+            search = createLimitedBuffer(search, c, delimiter.length);
+            if(search === delimiter) {
+                array.push(buf.substring(0, buf.length - delimiter.length + 1));
+                buf = '';
+                skip = true;
+            }
+        }
+        if(!skip) {
+            buf += c;
+        }
+    }
+    if(buf.length > 0) {
+        array.push(buf);
+    }
+    return array;
+}
+
 CSSCompiler.prototype = {
     init: function() {
         this.initGlobalVariables('', 0);
@@ -144,15 +432,6 @@ CSSCompiler.prototype = {
 
     interpret: function(input) {
         let style = new CSSStyle();
-
-        let styleRule = new CSSStyleRule();
-        let styleRuleValid = false;
-
-        let styleMediaQuery = new CSSStyleMediaQuery();
-        let styleMediaValid = false;
-
-        let styleMozilla = new CSSStyleMozillaDocument();
-        let styleMozillaValid = false;
 
         let vars = this.initGlobalVariables(input, input.length);
         let kill = false;
@@ -216,80 +495,32 @@ CSSCompiler.prototype = {
                     vars.brackets++;
 
                     let buf = trimBuffer(vars.buffer);
-                    if(buf.startsWith('@media')) {
-                        styleMediaQuery = new CSSStyleMediaQuery();
-                        styleMediaValid = true;
-                        styleMediaQuery.mediaRuleText = buf;
-                        styleMediaQuery.line = vars.lineNumber;
-                    } else if(buf.startsWith('@-moz-document')) {
-                        styleMozilla = new CSSStyleMozillaDocument();
-                        styleMozillaValid = true;
-                        styleMozilla.documentText = buf;
-                        styleMozilla.line = vars.lineNumber;
-                    } else {
-                        styleRule = new CSSStyleRule();
-                        styleRuleValid = true;
-                        styleRule.line = vars.lineNumber;
-                        const selectorTexts = trimBuffer(vars.buffer).split(',');
-                        for(let selectorText of selectorTexts) {
-                            styleRule.selectorTexts.push(trimBuffer(selectorText));
+
+                    const styleTypes = cssStyleTypes.styleTypes;
+                    for(let styleType in styleTypes) {
+                        const type = styleTypes[styleType];
+                        if(type.parse(vars, buf)) {
+                            break;
                         }
-                        vars.bracketAllowed = false;
                     }
                     vars.buffer = '';
                 } else if(char === '}' && !walkthroughString) {
                     vars.brackets--;
-                    if(!styleRuleValid && !styleMediaValid && !styleMozillaValid) {
-                        simplifiedFatalError(input, vars.i, 'Serious error has found in the code nearby');
+
+                    if(cssStyleTypes.stacks.length === 0) {
+                        simplifiedFatalError(input, vars.i, 'Serious error (no depth) has found in the code nearby');
                         kill = true;
                         break;
                     }
 
-                    const execute = () => {
-                        let descent = false;
-                        let nextStyle = null;
-                        if(styleRuleValid) {
-                            let rules = trimBuffer(vars.buffer).split(';');
-                            for(let rule of rules) {
-                                if(rule.length === 0) {
-                                    continue;
-                                }
-                                styleRule.rules.push(trimBuffer(rule));
-                            }
-                            vars.bracketAllowed = true;
-                            descent = true;
-                            styleRuleValid = false;
-                            nextStyle = styleRule;
-                            styleRule = null;
-                        }
-                        if(styleMediaValid) {
-                            if(descent) {
-                                styleMediaQuery.styles.push(nextStyle);
-                                return;
-                            } else {
-                                descent = true;
-                                styleMediaValid = false;
-                                nextStyle = styleMediaQuery;
-                                styleMediaQuery = null;
-                            }
-                        }
-                        if(styleMozillaValid) {
-                            if(descent) {
-                                styleMozilla.styles.push(nextStyle);
-                                return;
-                            } else {
-                                descent = true;
-                                styleMozillaValid = false;
-                                nextStyle = styleMozilla;
-                                styleMozilla = null;
-                            }
-                        }
-
-                        if(descent) {
-                            style.styles.push(nextStyle);
-                        }
-                    };
-                    execute();
+                    const current = cssStyleTypes.stacks.pop();
+                    current.type.enclose(vars, current.style);
+                    if(cssStyleTypes.stacks.length > 0) {
+                        const parent = cssStyleTypes.stacks[cssStyleTypes.stacks.length - 1];
+                        parent.style.styles.push(current.style);
+                    } else {
+                        style.styles.push(current.style);
+                    }
                     vars.buffer = '';
                 } else {
                     vars.buffer += `${char}`;
@@ -325,48 +556,93 @@ CSSCompiler.prototype = {
         return null;
     },
 
-    mergeStyles: function(parent, styles) {
+    mergeRules: function(parent, styles) {
+        let selectorList = {};
+        for(let i = 0; i < styles.length; i++) {
+            let rule = styles[i];
+            if(rule.type === CSSSTYLE_TYPE_IMPORT) {
+                let style = new CSSStyleImport();
+                style.setRule(rule.getRule());
+                style.decompressedSelectorIndices = [ i ];
+                style.line = rule.line;
+                parent.styles.push(rule);
+                continue;
+            }
+
+            const isRuleStyle = rule.type === CSSSTYLE_TYPE_RULE;
+            if(isRuleStyle) {
+                rule.selectorTexts.sort();
+            }
+
+            const key = rule.getRule();
+            if(typeof selectorList[key] === 'undefined') {
+                selectorList[key] = {
+                    reduced: 0,
+                    type: rule.type,
+                    values: isRuleStyle ? rule.rules : rule.styles,
+                    originalIndices: [ i ]
+                }
+            } else {
+                const cache = selectorList[key];
+                cache.reduced++;
+                cache.values = cache.values.concat(isRuleStyle ? rule.rules : rule.styles);
+                cache.originalIndices = cache.originalIndices.concat([ i ]);
+                this.globalVariables.totalMerged += (isRuleStyle ? rule.rules : rule.styles).length;
+            }
+        }
+
+        for(let styleSelector in selectorList) {
+            const { reduced, type, values, originalIndices } = selectorList[styleSelector];
+
+            let rule;
+            if(type === CSSSTYLE_TYPE_RULE) {
+                rule = new CSSStyleRule();
+                rule.rules = values;
+            } else {
+                rule = new (getStyleStructure(type).constructor)();
+                this.mergeRules(rule, values);
+            }
+            rule.setRule(styleSelector);
+            rule.decompressedSelectorIndices = originalIndices;
+
+            parent.childrenReduced += reduced;
+            parent.styles.push(rule);
+        }
+
+        parent.styles.sort((a, b) => a.getRule().localeCompare(b.getRule()));
+    },
+
+    mergeSelectors: function(parent, styles) {
         let ruleList = {};
         for(let i = 0; i < styles.length; i++) {
             let rule = styles[i];
-            switch (rule.type) {
-                case CSSSTYLE_TYPE_RULE:
-                    rule.rules.sort().reverse();
+            if(rule.type === CSSSTYLE_TYPE_RULE) {
+                rule.rules.sort().reverse();
 
-                    const key = rule.rules.join(';');
-                    if(typeof ruleList[key] === 'undefined') {
-                        ruleList[key] = {
-                            reduced: 0,
-                            selectorTexts: rule.selectorTexts,
-                            originalIndices: [ i ],
-                        };
-                    } else {
-                        const temp = ruleList[key];
-                        ruleList[key] = {
-                            reduced: temp.reduced + 1,
-                            selectorTexts: temp.selectorTexts.concat(rule.selectorTexts),
-                            originalIndices: temp.originalIndices.concat([ i ])
-                        };
-                    }
-                    break;
-
-                case CSSSTYLE_TYPE_IMPORT:
-                    parent.styles.push(rule);
-                    break;
-
-                case CSSSTYLE_TYPE_MEDIA:
-                    let mediaQuery = new CSSStyleMediaQuery();
-                    mediaQuery.mediaRuleText = rule.mediaRuleText;
-                    this.mergeStyles(mediaQuery, rule.styles);
-                    parent.styles.push(mediaQuery);
-                    break;
-
-                case CSSSTYLE_TYPE_MOZILLA_DOCUMENT:
-                    let mozillaDocument = new CSSStyleMozillaDocument();
-                    mozillaDocument.documentText = rule.documentText;
-                    this.mergeStyles(mozillaDocument, rule.styles);
-                    parent.styles.push(mozillaDocument);
-                    break;
+                const key = rule.rules.join(';');
+                if(typeof ruleList[key] === 'undefined') {
+                    ruleList[key] = {
+                        reduced: 0,
+                        selectorTexts: rule.selectorTexts,
+                        originalIndices: [ i ],
+                    };
+                } else {
+                    const temp = ruleList[key];
+                    ruleList[key] = {
+                        reduced: temp.reduced + 1,
+                        selectorTexts: temp.selectorTexts.concat(rule.selectorTexts),
+                        originalIndices: temp.originalIndices.concat([ i ])
+                    };
+                    this.globalVariables.totalMerged += rule.selectorTexts.length;
+                }
+            } else {
+                let style = new rule.constructor();
+                style.setRule(rule.getRule());
+                style.decompressedSelectorIndices = [i];
+                if(rule.hasOwnProperty('styles')) {
+                    this.mergeSelectors(style, rule.styles);
+                }
+                parent.styles.push(style);
             }
         }
 
@@ -375,12 +651,14 @@ CSSCompiler.prototype = {
 
             const rule = new CSSStyleRule();
             rule.selectorTexts = selectorTexts;
-            rule.rules = styleRule.split(';');
+            rule.rules = splitter(styleRule, ';');
             rule.decompressedSelectorIndices = originalIndices;
 
             parent.childrenReduced += reduced;
             parent.styles.push(rule);
         }
+
+        parent.styles.sort((a, b) => a.getRule().localeCompare(b.getRule()));
     },
 
     verifyStyleIntegrity(uncompressed, compressed) {
@@ -405,52 +683,15 @@ CSSCompiler.prototype = {
                 return;
             }
 
-            switch (uncompressedStyle.type) {
-                case CSSSTYLE_TYPE_RULE:
-                    // Cannot verify css-rules if they are identical.
-                    // Merging process zips duplicated tags into one selector.
-                    break;
-
-                case CSSSTYLE_TYPE_MEDIA:
-                    let aMediaRuleText = uncompressedStyle.mediaRuleText;
-                    let bMediaRuleText = compressedStyle.mediaRuleText;
-                    if(trimBuffer(aMediaRuleText) !== trimBuffer(bMediaRuleText)) {
-                        errors.push(new CSSStyleIntegrityError().setLine(uncompressedStyle.line).setStyle(uncompressedStyle).setErrorMessage(`Media query rules are not identical. (original: ${aMediaRuleText}, compressed: ${bMediaRuleText})`));
-                        return;
-                    }
-                    this._verifyStyleIntegrity(errors, uncompressedStyle, compressedStyle);
-                    break;
-
-                case CSSSTYLE_TYPE_IMPORT:
-                    let aImportText = uncompressedStyle.importText;
-                    let bImportText = compressedStyle.importText;
-                    if(trimBuffer(aImportText) !== trimBuffer(bImportText)) {
-                        errors.push(new CSSStyleIntegrityError().setLine(uncompressedStyle.line).setStyle(uncompressedStyle).setErrorMessage(`Import rules are not identical. (original: ${aImportText}, compressed: ${bImportText})`));
-                        return;
-                    }
-                    break;
-
-                case CSSSTYLE_TYPE_MOZILLA_DOCUMENT:
-                    let aDocumentText = uncompressedStyle.documentText;
-                    let bDocumentText = compressedStyle.documentText;
-                    if(trimBuffer(aDocumentText) !== trimBuffer(bDocumentText)) {
-                        errors.push(new CSSStyleIntegrityError().setLine(uncompressedStyle.line).setStyle(uncompressedStyle).setErrorMessage(`Mozilla documents URL selectors are not identical. (original: ${aDocumentText}, compressed: ${bDocumentText})`));
-                        return;
-                    }
-                    this._verifyStyleIntegrity(errors, uncompressedStyle, compressedStyle);
-                    break;
+            if(uncompressedStyle.compare(errors, compressedStyle)) {
+                this._verifyStyleIntegrity(errors, uncompressedStyle, compressedStyle);
             }
         }
         for(let i = 0; i < compressed.styles.length; i++) {
             const compressedStyle = compressed.styles[i];
-            if(compressedStyle.type === CSSSTYLE_TYPE_RULE) {
-                const indices = compressedStyle.decompressedSelectorIndices;
-                for(let j = 0; j < indices.length; j++) {
-                    const uncompressedStyle = uncompressed.styles[indices[j]];
-                    verify(compressedStyle, uncompressedStyle);
-                }
-            } else {
-                const uncompressedStyle = uncompressed.styles[i];
+            const indices = compressedStyle.decompressedSelectorIndices;
+            for(let j = 0; j < indices.length; j++) {
+                const uncompressedStyle = uncompressed.styles[indices[j]];
                 verify(compressedStyle, uncompressedStyle);
             }
         }
@@ -466,11 +707,11 @@ CSSCompiler.prototype = {
 
         let indentation = '';
         for(let i = 0; i < indent; i++) {
-            indentation += '\t';
+            indentation += '    ';
         }
-        let apply = (contents, color) => {
+        let apply = (contents) => {
             if(colorize) {
-                contents = `${color}${contents}${Reset}`;
+                contents = `${getPaletteByIndent(indent)}${contents}${Reset}`;
             }
             if(textIndent) {
                 contents = indentation + contents + '\n';
@@ -478,59 +719,21 @@ CSSCompiler.prototype = {
             return contents;
         };
         for(let rule of styles) {
-            switch (rule.type) {
-                case CSSSTYLE_TYPE_RULE:
-                    buffer += apply(` ${rule.selectorTexts.join(', ')} { ${rule.rules.join(';')} } `, FgCyan);
-                    break;
-
-                case CSSSTYLE_TYPE_IMPORT:
-                    buffer = apply(` ${rule.importText} `, FgBlue) + buffer;
-                    break;
-
-                case CSSSTYLE_TYPE_MEDIA:
-                    buffer += apply(` ${rule.mediaRuleText} { `, FgGreen);
+            const hasRules = rule.hasOwnProperty('rules');
+            const hasStyles = rule.hasOwnProperty('styles');
+            if(hasRules || hasStyles) {
+                if(hasRules) {
+                    buffer += apply(`${rule.getRule()} { ${rule.rules.join(';') } }`);
+                } else {
+                    buffer += apply(`${rule.getRule()} {`);
                     buffer += this._toString(rule.styles, options, '', indent + 1);
-                    buffer += apply(` } `, FgGreen);
-                    break;
-
-                case CSSSTYLE_TYPE_MOZILLA_DOCUMENT:
-                    buffer += apply(` ${rule.documentText} { `, FgMagenta);
-                    buffer += this._toString(rule.styles, options, '', indent + 1);
-                    buffer += apply(` } `, FgMagenta);
-                    break;
+                    buffer += apply(`}`);
+                }
+            } else {
+                buffer = apply(` ${rule.getRule()} `) + buffer;
             }
         }
         return buffer;
-    },
-
-    printPrettyTokenizedStyles: function(indent, styles) {
-        let indentation = '';
-        for(let i = 0; i < indent; i++) {
-            indentation += '\t';
-        }
-        for(let rule of styles) {
-            switch (rule.type) {
-                case CSSSTYLE_TYPE_RULE:
-                    console.log(`${indentation}${FgCyan}%s${Reset}`, `${rule.selectorTexts.join(',')} { ${rule.rules.join(';')} }`);
-                    break;
-
-                case CSSSTYLE_TYPE_IMPORT:
-                    console.log(`${indentation}${FgBlue}%s${Reset}`, `${rule.importText}`);
-                    break;
-
-                case CSSSTYLE_TYPE_MEDIA:
-                    console.log(`${indentation}${FgGreen}%s${Reset}`, `${rule.mediaRuleText} {`);
-                    this.printPrettyTokenizedStyles(indent + 1, rule.styles);
-                    console.log(`${indentation}${FgGreen}%s${Reset}`, `}`);
-                    break;
-
-                case CSSSTYLE_TYPE_MOZILLA_DOCUMENT:
-                    console.log(`${indentation}${FgMagenta}%s${Reset}`, `${rule.documentText} {`);
-                    this.printPrettyTokenizedStyles(indent + 1, rule.styles);
-                    console.log(`${indentation}${FgMagenta}%s${Reset}`, '}');
-                    break;
-            }
-        }
     },
 
     initGlobalVariables: function(input, length) {
@@ -542,9 +745,20 @@ CSSCompiler.prototype = {
             buffer: '',
             brackets: 0,
             bracketAllowed: true,
-            lineNumber: 1
+            lineNumber: 1,
+            totalMerged: 0
         };
         return this.globalVariables;
+    },
+
+    statistics: function() {
+        const vars = this.globalVariables;
+        return {
+            totalMerged: vars.totalMerged,
+            invalidate: function() {
+                vars.totalMerged = 0
+            }
+        }
     },
 
     addFilter: function(name, variables, fn) {
@@ -573,7 +787,7 @@ CSSCompiler.prototype = {
                 }
             } else if(buffer === '*/') {
                 if(!filter.enabled) {
-                    simplifiedFatalError(globalVariables.input, globalVariables.i, 'Serious error has found in the code nearby');
+                    simplifiedFatalError(globalVariables.input, globalVariables.i, 'Serious error (invalid comments block) has found in the code nearby');
                     return false;
                 }
                 // Enqueue disable this filter
@@ -656,6 +870,12 @@ const FgMagenta = "\x1b[35m";
 const FgCyan = "\x1b[36m";
 const FgWhite = "\x1b[37m";
 
+const INDENTATION_COLOR_MAP = [ FgMagenta, FgCyan, FgGreen, FgRed, FgYellow ];
+
+function getPaletteByIndent(indent) {
+    return INDENTATION_COLOR_MAP[indent % INDENTATION_COLOR_MAP.length]
+}
+
 function trimBuffer(text) {
     return text.replace(/(?:\r\n|\r|\n)/g, '').trim();
 }
@@ -717,5 +937,6 @@ function th(line) {
 module.exports = {
     CSSCompiler,
     CSSStyle,
-    CSSStyleIntegrityError
+    CSSStyleIntegrityError,
+    splitter
 };
