@@ -1,6 +1,6 @@
 ### UserCSS Compiler
 
-The compiler that compress CSS properties which have same bodies.
+A compiler that compress CSS properties which have same bodies.
 
 ##### Run
 ```
