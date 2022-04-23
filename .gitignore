@@ -219,5 +219,5 @@ temp/
 
 # End of https://www.gitignore.io/api/node,macos,intellij+iml
 
-cmp.css
-raw.css
+stylesheets/cmp.css
+stylesheets/raw.css
